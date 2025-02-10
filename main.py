@@ -145,7 +145,7 @@ with col2:
 def flagged_emails(key_prefix=""):
     found_emails = st.session_state.get("found_emails", [])
     if found_emails and len(found_emails) > 0:
-        page_size = 1
+        page_size = 10
         total_pages = (len(found_emails) + page_size - 1) // page_size
         st.session_state["page_index"] = min(max(0, st.session_state["page_index"]), total_pages - 1)
         
