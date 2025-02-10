@@ -1,4 +1,6 @@
 # InboXpert - AI Email Cleaner
+## Demo
+🔗 [View Demo Video](https://twitter.com/SumitPaul18_9/status/1889016485345153313)
 
 ## Local Installation Steps
 
