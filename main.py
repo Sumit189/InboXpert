@@ -6,7 +6,6 @@ from googleapiclient.discovery import build
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 
-# Gmail API Scopes
 SCOPES = ["https://www.googleapis.com/auth/gmail.modify", "https://www.googleapis.com/auth/gmail.readonly", "https://mail.google.com/"]
 
 def authenticate_gmail():
@@ -73,14 +72,41 @@ def analyze_emails_with_llm(emails, criteria):
 
         total_scanned += 1
         st.session_state["total_emails_scanned"] = total_scanned
-        
-        prompt = f"User wants to select emails based on this criteria: '{criteria}'. Should this email be selected?\n\nEmail:\nSubject: {email['subject']}\nFrom: {email['sender']}\n\nBody:\n{email['body']}\n\nRespond with 'YES' or 'NO'."
-        response = ollama.chat(model="llama3.1:latest", messages=[{"role": "user", "content": prompt}])
+        prompt = f"""
+            You are a helpful agent and you are helping a user to select received emails based on a certain criteria.
+            The user wants to select emails and move them to trash or delete them permanently.
+
+            <Email Start>
+            Subject: {email['subject']}
+            From: {email['sender']}
+            Body: {email['body']}
+            <Email End>
+
+            You need to decide if this email should be selected or not. Respond with only 'YES' or 'NO'.
+            The selection criteria is: "{criteria}", Stictly follow this criteria and decide if this email should be selected or not.
+
+            ALWAYS use the following format:
+            Question: the input question you must answer
+            Thought: you should always think about one action to take. Only one action at a time in this format:
+            Observation: the result of the action. This Observation is unique, complete, and the source of truth.
+                ... (this Thought/Action/Observation can repeat N times, you should take several steps when needed)
+
+            You must always end your output with the following format: 
+            YES or NO
+        """
+        response = ollama.chat(model="deepseek-r1:1.5b", messages=[{"role": "user", "content": prompt}])
         percent_complete = int((total_scanned / len(emails)) * 100)
         progress_text = f"Scanning Email: {total_scanned}/{len(emails)}, Found: {len(found_emails)}\n\nFor Email: {email['subject']} ({email['sender']})\n\nAI Response: {response['message']['content']}"
         progress_container.progress(min(percent_complete + 1, 100), text=progress_text)
+        # response contains thinking token as <think> thought </think>, need to remove all content inside the think tokens
+        # get the text after the last think token
+        response = response["message"]["content"]
+        if "</think>" in response:
+            response_text = response.split("</think>")[-1].strip()
+        else:
+            response_text = response.strip()
         
-        if "YES" in response["message"]["content"]:
+        if "YES" in response_text:
             found_emails.append(email)
             st.session_state["found_emails"] = found_emails
     
@@ -175,7 +201,7 @@ def flagged_emails(key_prefix=""):
                     st.session_state["selected_email_ids"].discard(email["id"])
             
             with col2:
-                with st.expander(f"📩 {email['subject']} ({email['sender']})", expanded=True):
+                with st.expander(f"📩 {email['subject']} ({email['sender']})", expanded=False):
                     st.write(f"**From:** {email['sender']}")
                     st.markdown(
                         f"""
