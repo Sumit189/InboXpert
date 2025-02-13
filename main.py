@@ -94,7 +94,7 @@ def analyze_emails_with_llm(emails, criteria):
             You must always end your output with the following format: 
             YES or NO
         """
-        response = ollama.chat(model="deepseek-r1:1.5b", messages=[{"role": "user", "content": prompt}])
+        response = ollama.chat(model="deepseek-r1:7b", messages=[{"role": "user", "content": prompt}])
         percent_complete = int((total_scanned / len(emails)) * 100)
         progress_text = f"Scanning Email: {total_scanned}/{len(emails)}, Found: {len(found_emails)}\n\nFor Email: {email['subject']} ({email['sender']})\n\nAI Response: {response['message']['content']}"
         progress_container.progress(min(percent_complete + 1, 100), text=progress_text)
@@ -181,9 +181,8 @@ def flagged_emails(key_prefix=""):
         
         st.markdown('<div style="background-color:#f0f0f0; padding:5px; border-radius:2px;">', unsafe_allow_html=True)
         st.markdown("### Flagged Emails")
-        st.write(f"Found {len(found_emails)} emails. Showing page {st.session_state['page_index'] + 1}")
-        
-        select_all = st.checkbox("Select All", key=f"{key_prefix}select_all_flagged")
+        st.write(f"Found {len(found_emails)} emails. Showing page {st.session_state['page_index'] + 1}") 
+        select_all = st.checkbox("Select All", key=f"{key_prefix}select_all_flagged", value=False)
         if select_all:
             st.session_state["selected_email_ids"] = {email["id"] for email in paginated_emails}
         else:
