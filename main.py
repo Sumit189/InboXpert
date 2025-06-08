@@ -48,6 +48,7 @@ def fetch_emails(service, max_results, skip):
     return email_data
 
 def analyze_emails_with_llm(emails, criteria):
+    import concurrent.futures
     if "analysis_stopped" not in st.session_state:
         st.session_state["analysis_stopped"] = False
 
@@ -55,23 +56,15 @@ def analyze_emails_with_llm(emails, criteria):
     total_scanned = 0
     progress_container = st.empty()
     progress_container.progress(0, text="Starting Email Analysis...")
-    
+
     stop_container = st.empty()
-    if stop_container.button("Stop Analyzing", key="stop_analyze_btn"):
+    stop_flag = [False]
+    def stop_callback():
+        stop_flag[0] = True
         st.session_state["analysis_stopped"] = True
+    stop_container.button("Stop Analyzing", key="stop_analyze_btn", on_click=stop_callback)
 
-    for email in emails:
-        if st.session_state["analysis_stopped"]:
-            progress_container.empty()
-            stop_container.empty()
-            st.warning("Analysis stopped by user.")
-            if len(found_emails) > 0:
-                st.warning(f"Stopped after scanning {total_scanned} emails. Found {len(found_emails)} matching emails.")
-            st.session_state["analysis_stopped"] = False
-            return 
-
-        total_scanned += 1
-        st.session_state["total_emails_scanned"] = total_scanned
+    def analyze_single_email(email):
         prompt = f"""
             You are a helpful agent and you are helping a user to select received emails based on a certain criteria.
             The user wants to select emails and move them to trash or delete them permanently.
@@ -94,22 +87,38 @@ def analyze_emails_with_llm(emails, criteria):
             You must always end your output with the following format: 
             YES or NO
         """
-        response = ollama.chat(model="deepseek-r1:7b", messages=[{"role": "user", "content": prompt}])
-        percent_complete = int((total_scanned / len(emails)) * 100)
-        progress_text = f"Scanning Email: {total_scanned}/{len(emails)}, Found: {len(found_emails)}\n\nFor Email: {email['subject']} ({email['sender']})\n\nAI Response: {response['message']['content']}"
-        progress_container.progress(min(percent_complete + 1, 100), text=progress_text)
-        # response contains thinking token as <think> thought </think>, need to remove all content inside the think tokens
-        # get the text after the last think token
+        response = ollama.chat(model="smallthinker", messages=[{"role": "user", "content": prompt}])
         response = response["message"]["content"]
         if "</think>" in response:
             response_text = response.split("</think>")[-1].strip()
         else:
             response_text = response.strip()
-        
-        if "YES" in response_text:
-            found_emails.append(email)
-            st.session_state["found_emails"] = found_emails
-    
+        return (email, response_text)
+
+    found_emails = []
+    results = []
+    max_workers = min(8, len(emails))  # Limit concurrency for local/llm stability
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+        future_to_email = {executor.submit(analyze_single_email, email): email for email in emails}
+        for i, future in enumerate(concurrent.futures.as_completed(future_to_email)):
+            if stop_flag[0]:
+                progress_container.empty()
+                stop_container.empty()
+                st.warning("Analysis stopped by user.")
+                if len(found_emails) > 0:
+                    st.warning(f"Stopped after scanning {i} emails. Found {len(found_emails)} matching emails.")
+                st.session_state["analysis_stopped"] = False
+                return
+            email, response_text = future.result()
+            total_scanned = i + 1
+            st.session_state["total_emails_scanned"] = total_scanned
+            percent_complete = int((total_scanned / len(emails)) * 100)
+            progress_text = f"Scanning Email: {total_scanned}/{len(emails)}, Found: {len(found_emails)}\n\nFor Email: {email['subject']} ({email['sender']})\n\nAI Response: {response_text}"
+            progress_container.progress(min(percent_complete + 1, 100), text=progress_text)
+            if "YES" in response_text:
+                found_emails.append(email)
+                st.session_state["found_emails"] = found_emails
+
     progress_container.empty()
     stop_container.empty()
     st.session_state["total_emails_scanned"] = total_scanned
